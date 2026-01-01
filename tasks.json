@@ -1,0 +1,26 @@
+[
+    {
+        "name": "How about linkedin update",
+        "duration": "15",
+        "time": "1:00-1:15",
+        "status": "Done"
+    },
+    {
+        "name": "to complete the app",
+        "duration": "60",
+        "time": "12:00-1:00",
+        "status": "Pending"
+    },
+    {
+        "name": "update task",
+        "duration": "6",
+        "time": "12:10-12:15",
+        "status": "In Progress"
+    },
+    {
+        "name": "App_version 2 working",
+        "time": "5:15",
+        "duration": "15",
+        "status": "Pending"
+    }
+]
