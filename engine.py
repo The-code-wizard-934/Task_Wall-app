@@ -1,71 +1,103 @@
-import json
-import ctypes
-import os
+import json, ctypes, os, datetime
 from PIL import Image, ImageDraw, ImageFont
 
-# Get the absolute path of the current folder to avoid "File Not Found" errors
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, "tasks.json")
 TEMPLATE_IMAGE = os.path.join(BASE_DIR, "template.jpg")
 OUTPUT_IMAGE = os.path.join(BASE_DIR, "current_wallpaper.jpg")
+DATA_FILE = os.path.join(BASE_DIR, "tasks.json")
 
 def load_tasks():
     try:
         with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
+            tasks = json.load(f)
+            return sorted(tasks, key=lambda x: x.get('time', '00:00'))
+    except: return []
 
 def save_tasks(tasks):
     with open(DATA_FILE, "w") as f:
         json.dump(tasks, f, indent=4)
 
-def update_wallpaper_image(tasks):
+def update_wallpaper_image(tasks, active_timer=None):
     try:
-        base = Image.open(TEMPLATE_IMAGE).convert("RGB")
-        draw = ImageDraw.Draw(base)
+        if not os.path.exists(TEMPLATE_IMAGE): return False
         
-        # 1. Font Setup (Use a slightly smaller font for the table)
+        # 1. Image Setup
+        base = Image.open(TEMPLATE_IMAGE).convert("RGBA")
+        overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        width, height = base.size
+        
+        # 2. Modern Color Palette
+        COLOR_ACCENT = (255, 204, 0, 255)  # Vibrant Yellow-Gold
+        COLOR_TEXT = (255, 255, 255, 255)  # Pure White
+        COLOR_DIM = (255, 255, 255, 100)   # Faded White (Alpha)
+        COLOR_PANE = (0, 0, 0, 140)        # Glassmorphism Pane
+        COLOR_TIMER = (255, 59, 48, 255)   # iOS Red for urgency
+
         try:
-            font_header = ImageFont.truetype("colonna.ttf", 40) # Bold-ish header
-            font_row = ImageFont.truetype("arial.ttf", 30)    # Regular row
+            # Using bold variants if available makes it look much more professional
+            f_header = ImageFont.truetype("arialbd.ttf", 32) 
+            f_body = ImageFont.truetype("arial.ttf", 28)
+            f_small = ImageFont.truetype("arial.ttf", 25)
         except:
-            font_header = ImageFont.load_default()
-            font_row = ImageFont.load_default()
+            f_header = f_body = f_small = ImageFont.load_default()
 
-        # 2. Define Table Columns (X-Coordinates)
-        col_time = 100
-        col_task = 300
-        col_dur = 800
-        y_pos = 100 # Starting height
+        # 3. Draw Glassmorphism Pane (Background for the table)
+        # Coordinates: [left, top, right, bottom]
+        pane_x0, pane_y0, pane_x1 = 100, 100, 1300
+        pane_y1 = min(150 + (len(tasks) + 1) * 75, height - 100)
+        draw.rounded_rectangle([pane_x0, pane_y0, pane_x1, pane_y1], radius=30, fill=COLOR_PANE)
 
-        # 3. Draw Table Headers
-        draw.text((col_time, y_pos), "TIME", font=font_header, fill=(255, 255, 255))
-        draw.text((col_task, y_pos), "Task Name", font=font_header, fill=(255, 255, 255))
-        draw.text((col_dur, y_pos), "Time Slot", font=font_header, fill=(255, 255, 255))
+        # 4. Active Timer (Floating Badge style)
+        if active_timer:
+            timer_txt = f" {active_timer['name'].upper()} • {active_timer['time_left']} "
+            t_w = draw.textlength(timer_txt, font=f_body)
+            # Red glow effect
+            draw.rounded_rectangle([width - t_w - 120, 50, width - 60, 120], radius=15, fill=COLOR_TIMER)
+            draw.text((width - t_w - 90, 65), timer_txt, font=f_body, fill=COLOR_TEXT)
+
+        # 5. Table Layout
+        x_time, x_name, x_dur, x_status = 150, 320, 880, 1100
+        y = 160
         
-        # Draw a simple separator line under headers
-        draw.line([(col_time, y_pos+50), (col_dur+100, y_pos+50)], fill=(255, 255, 255), width=2)
+        # Headers with high tracking (spacing)
+        draw.text((x_time, y), "TIME", font=f_header, fill=COLOR_ACCENT)
+        draw.text((x_name, y), "TASK", font=f_header, fill=COLOR_ACCENT)
+        draw.text((x_dur, y), "DURATION", font=f_header, fill=COLOR_ACCENT)
+        draw.text((x_status, y), "STATUS", font=f_header, fill=COLOR_ACCENT)
         
-        y_pos += 80 # Move down to start rows
+        y += 85
+        draw.line([(x_time, y-15), (x_status+150, y-15)], fill=COLOR_DIM, width=2)
 
-        # 4. Draw Rows
-        for task in tasks:
-            name = str(task.get('name', ''))
-            time = str(task.get('time', ''))
-            dur = f"{task.get('duration', '')}m"
-
-            draw.text((col_time, y_pos), time, font=font_row, fill=(200, 200, 200))
-            draw.text((col_task, y_pos), name, font=font_row, fill=(255, 255, 255))
-            draw.text((col_dur, y_pos), dur, font=font_row, fill=(200, 200, 200))
+        # 6. Task Rows
+        sorted_tasks = sorted(tasks, key=lambda x: x.get('time', '00:00'))
+        for task in sorted_tasks:
+            status = task.get("status", "Pending")
+            text_color = COLOR_DIM if status == "Done" else COLOR_TEXT
             
-            y_pos += 50 # Space between rows
+            # Use symbols for a cleaner look
+            icon = "●" if status == "In Progress" else "○"
+            if status == "Done": icon = "✓"
 
-        # 5. Save and Apply
-        base.save(OUTPUT_IMAGE, "JPEG", quality=100)
+            draw.text((x_time, y), task.get('time', '--:--'), font=f_body, fill=text_color)
+            draw.text((x_name, y), f"{icon}  {task.get('name', '')}", font=f_body, fill=text_color)
+            draw.text((x_dur, y), f"{task.get('duration', '0')}m", font=f_body, fill=text_color)
+            
+            # Status badge
+            status_txt = status.upper()
+            draw.text((x_status, y), status_txt, font=f_body, fill=COLOR_ACCENT if status != "Done" else COLOR_DIM)
+            
+            y += 65 # Compact but readable spacing
+
+        # 7. Metadata
+        sync_time = datetime.datetime.now().strftime("%I:%M %p")
+        draw.text((width - 300, height - 60), f"SYSTEM SYNCED: {sync_time}", font=f_small, fill=COLOR_DIM)
+
+        # 8. Merge and Apply
+        out_img = Image.alpha_composite(base, overlay).convert("RGB")
+        out_img.save(OUTPUT_IMAGE, quality=100)
         ctypes.windll.user32.SystemParametersInfoW(20, 0, os.path.abspath(OUTPUT_IMAGE), 3)
         return True
-        
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Engine Error: {e}")
         return False
